@@ -69,6 +69,8 @@ def analyze_intersections(all_ppl, ext_line, int_line):
                 if current_int_side[0] > 0:
                     current_product = round((current_int_side[i] * current_int_side[i + 1]), 2)
                     if (first_product > 0) & (first_product*current_product < 0):
+                        if max(max(p[:2]) for p in points) <= 427:
+                            continue  # Пропускаем треки, у которых все координаты меньше или равны 427
                         unic_int_ppl.append(track_id)
                     first_product = current_product
                     
@@ -77,6 +79,8 @@ def analyze_intersections(all_ppl, ext_line, int_line):
                 if current_ext_side[0] < 0:
                     current_product = round((current_ext_side[i] * current_ext_side[i + 1]), 2)
                     if (first_product > 0) & (first_product*current_product < 0):
+                        if max(max(p[:2]) for p in points) <= 361:
+                            continue  # Пропускаем треки, у которых все координаты меньше или равны 361
                         unic_ext_ppl.append(track_id)
                     first_product = current_product
                     
@@ -99,4 +103,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
