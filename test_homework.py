@@ -1,110 +1,93 @@
 import json
 
+#читаем файл
 with open ('detections.json') as f:
     data = json.load(f)
 
+#выгружаем координаты с файла в отдельные переменные
 def extract_coordinates(data):
     ext_line = data['eventSpecific']['nnDetect']['10_8_3_203_rtsp_camera_3']['cfg']['cross_lines'][0]['ext_line']
     int_line = data['eventSpecific']['nnDetect']['10_8_3_203_rtsp_camera_3']['cfg']['cross_lines'][0]['int_line']
+    # print(ext_line, int_line)
     return ext_line, int_line
 
+#функция получения остальных данных
 def process_detections(data):
     frames = data['eventSpecific']['nnDetect']['10_8_3_203_rtsp_camera_3']['frames']
     
-    all_ppl = {}
+    all_ppl = {} #создаём пустой словарь для всех track_id
     
-    for frame_data in frames.values():
+    for frame_data in frames.values(): #цикл прохода по всем данным за каждую вторую секунду
         persons = frame_data['detected']['person']
-        for person in persons:
-            if len(person) == 6:
-                track_id = list(person[5].keys())[0]
-                coords = person[:4]
+        for person in persons:#проходим по всем person для сбора данных
+            if len(person) == 6:#проверяем, если данных меньше 6, то параметр достоверности <0.4, track_id не присваивается
+                track_id = list(person[5].keys())[0]#считываем track_id
+                coords = person[:4]#считываем координаты рамки детекции
                 
-                if track_id not in all_ppl:
+                if track_id not in all_ppl:#проверка на уникальность
                     all_ppl[track_id] = []
                 all_ppl[track_id].append(coords)
-    
+    # print(all_ppl)
     return all_ppl
 
+#строим уравнение прямой через две точки
 def get_line_equation(line):
     x1, y1, x2, y2 = line
-    a = y2 - y1
-    b = x1 - x2
-    c = x2 * y1 - x1 * y2
-    return a, b, c
+    print(x1, y1, x2, y2)
+    a = (y1 - y2)/(x1 - x2)
+    b = y1 - ((x1 * (y1 - y2))/(x1 - x2))
+    print(a, b)
+    return a, b 
 
-def check_side(a, b, c, x, y):
-    return a * x + b * y + c
+#проверяем положение точки относитлеьно прямой
+def check_side(a, b, x, y):
+    return a * x + b
 
 def analyze_intersections(all_ppl, ext_line, int_line):
+    #создаём два пустых списка для хранения уникальных track_id
     unic_ext_ppl = []
     unic_int_ppl = []
 
-    ext_a, ext_b, ext_c = get_line_equation(ext_line)
-    int_a, int_b, int_c = get_line_equation(int_line)
-
+    #получаем a, b коэффициенты прямых
+    ext_a, ext_b = get_line_equation(ext_line)
+    int_a, int_b = get_line_equation(int_line)
+    
     for track_id, points in all_ppl.items():
-        if len(points) >= 2:
-            start_point = points[0][:2]
-            current_point = []
-            start_ext_side = check_side(ext_a, ext_b, ext_c, *start_point)
-            start_int_side = check_side(int_a, int_b, int_c, *start_point)
+        current_ext_side = []
+        current_int_side = []
+        print("____", track_id, "_____")
+        for point in points[0:]:
+            x, y = point[:2] 
+            y_ext = check_side(ext_a, ext_b, x, y)
+            y_int = check_side(int_a, int_b, x, y)
+            current_int_side.append(round((check_side(int_a, int_b, x, y)), 2))
+            current_ext_side.append(round((check_side(ext_a, ext_b, x, y)), 2))
+                    
+        if len(current_int_side) >= 5:
+            first_product = current_int_side[0]*current_int_side[1]
+            for i in range(1, len(current_int_side) - 1):
+                if current_int_side[0] > 0:
+                    current_product = round((current_int_side[i] * current_int_side[i + 1]), 2)
+                    if (first_product > 0) & (first_product*current_product < 0):
+                        unic_int_ppl.append(track_id)
+                    first_product = current_product
+                    
+            first_product = current_ext_side[0]*current_ext_side[1]        
+            for i in range(1, len(current_ext_side) - 1):
+                if current_ext_side[0] < 0:
+                    current_product = round((current_ext_side[i] * current_ext_side[i + 1]), 2)
+                    if (first_product > 0) & (first_product*current_product < 0):
+                        unic_ext_ppl.append(track_id)
+                    first_product = current_product
+                    
+        print(current_int_side)  
+        print(current_ext_side)      
+                            
+    print("exit", list(set(unic_ext_ppl)))
+    print("____")
+    print("inter", list(set(unic_int_ppl)))
             
-            crossed_ext = False
-            crossed_int = False
-
-            for point in points[1:]:
-                x, y = point[:2]
-                current_ext_side = check_side(ext_a, ext_b, ext_c, x, y)
-                current_int_side = check_side(int_a, int_b, int_c, x, y)
-                current_point.append(x)
-                current_point.append(y)
-                if start_ext_side * current_ext_side < 0:
-                    if start_int_side * current_int_side > 0:
-                        if start_point > current_point:
-                            crossed_int = True
-                            print(f"Track ID: {track_id}")
-                            print(f"Start Point: {start_point}, Current Point: ({x}, {y})")
-                            print(f"Start Ext Side: {start_ext_side}, Current Ext Side: {current_ext_side}")
-                            print(f"Start Int Side: {start_int_side}, Current Int Side: {current_int_side}")
-                            print(f"Crossed Ext: {crossed_ext}, Crossed Int: {crossed_int}")
-                            print("------")
-                
-                if crossed_int:
-                    break
-                
-            for point in points[1:]:
-                x, y = point[:2]
-                current_ext_side = check_side(ext_a, ext_b, ext_c, x, y)
-                current_int_side = check_side(int_a, int_b, int_c, x, y)
-                current_point.append(x)
-                current_point.append(y)
-                if start_int_side * current_int_side < 0:
-                    if start_ext_side * current_ext_side > 0:
-                        if start_point < current_point:
-                            crossed_ext = True
-                            print(f"Track ID: {track_id}")
-                            print(f"Start Point: {start_point}, Current Point: ({x}, {y})")
-                            print(f"Start Ext Side: {start_ext_side}, Current Ext Side: {current_ext_side}")
-                            print(f"Start Int Side: {start_int_side}, Current Int Side: {current_int_side}")
-                            print(f"Crossed Ext: {crossed_ext}, Crossed Int: {crossed_int}")
-                            print("------")
-                
-                if crossed_ext:
-                    break
-            
-            if crossed_ext:
-                unic_ext_ppl.append(track_id)
-            if crossed_int:
-                unic_int_ppl.append(track_id)
-    
-    # print("exit", list(set(unic_ext_ppl)))
-    # print("____")
-    # print("inter", list(set(unic_int_ppl)))
-    
-    return len(unic_ext_ppl), len(unic_int_ppl)
-
-
+    return len(unic_ext_ppl), len(unic_int_ppl)        
 
 def main():
     ext_line, int_line = extract_coordinates(data)
@@ -116,3 +99,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
